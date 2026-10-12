@@ -74,3 +74,19 @@ jobs:
           name: musicfree-kumone-apk
           path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
+
+      # Actions 产物的下载域名在国内网络下不稳定，另发一份到 Release。
+      - name: Publish dev release (APK visible on Releases page)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: kumone-restore-${{ github.run_number }}
+          name: Kumone 备份恢复版 #${{ github.run_number }}
+          body: |
+            自动化构建。安装 universal 包即可（任意 ABI 通用）；
+            按机型下载对应包体积更小。
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            android/app/build/outputs/apk/release/*universal*.apk
+            android/app/build/outputs/apk/release/*arm64-v8a*.apk
+            android/app/build/outputs/apk/release/*armeabi-v7a*.apk

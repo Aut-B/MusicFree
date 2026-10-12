@@ -5,6 +5,9 @@ on:
     branches: [dev-kumone-restore]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -66,13 +69,14 @@ jobs:
       - name: List generated APKs
         run: |
           echo "Generated APK files:"
-          find android/app/build/outputs/apk/release -name "*.apk" -exec ls -lh {} \;
+          find android/app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: musicfree-kumone-apk
-          path: android/app/build/outputs/apk/release/*.apk
+          # ABI splits 会把包放到 apk/<abi>/release/ 子目录，用 ** 才能全覆盖
+          path: android/app/build/outputs/apk/**/*.apk
           retention-days: 30
 
       # Actions 产物的下载域名在国内网络下不稳定，另发一份到 Release。
@@ -87,6 +91,6 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            android/app/build/outputs/apk/release/*universal*.apk
-            android/app/build/outputs/apk/release/*arm64-v8a*.apk
-            android/app/build/outputs/apk/release/*armeabi-v7a*.apk
+            android/app/build/outputs/apk/**/*universal*.apk
+            android/app/build/outputs/apk/**/*arm64-v8a*.apk
+            android/app/build/outputs/apk/**/*armeabi-v7a*.apk

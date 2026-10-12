@@ -51,12 +51,10 @@ jobs:
             -alias musicfree -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=MusicFree, OU=Dev, O=Dev, L=, S=, C=CN"
-          cat > android/keystore.properties << 'EOF'
-          RELEASE_STORE_FILE=release.keystore
-          RELEASE_STORE_PASSWORD=android
-          RELEASE_KEY_ALIAS=musicfree
-          RELEASE_KEY_PASSWORD=android
-          EOF
+          printf 'RELEASE_STORE_FILE=release.keystore\nRELEASE_STORE_PASSWORD=android\nRELEASE_KEY_ALIAS=musicfree\nRELEASE_KEY_PASSWORD=android\n' > android/keystore.properties
+          echo "--- keystore.properties ---"
+          cat android/keystore.properties
+          ls -la android/app/release.keystore
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
@@ -70,6 +68,40 @@ jobs:
         run: |
           echo "Generated APK files:"
           find android/app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;
+
+      # 兜底：Gradle 的 signingConfig 有时会静默产出未签名包
+      # （keystore.properties 没读到时不报错）。这里逐个检查，没签的现签。
+      - name: Sign APK if unsigned
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | head -1)
+          ZIPALIGN=$(ls "$ANDROID_HOME"/build-tools/*/zipalign | head -1)
+          echo "apksigner=$APKSIGNER zipalign=$ZIPALIGN"
+          for APK in $(find android/app/build/outputs/apk -name "*.apk"); do
+            if "$APKSIGNER" verify "$APK" >/dev/null 2>&1; then
+              echo "already signed: $APK"
+            else
+              echo "signing: $APK"
+              "$ZIPALIGN" -f 4 "$APK" "$APK.aligned"
+              mv "$APK.aligned" "$APK"
+              "$APKSIGNER" sign --ks android/app/release.keystore \
+                --ks-pass pass:android --key-pass pass:android \
+                --ks-key-alias musicfree "$APK"
+            fi
+          done
+
+      - name: Verify APK signature
+        run: |
+          APK=$(find android/app/build/outputs/apk -name "*universal*.apk" | head -1)
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | head -1)
+          {
+            echo "apk=$APK"
+            echo "apksigner=$APKSIGNER"
+            if [ -n "$APKSIGNER" ]; then
+              "$APKSIGNER" verify --print-certs "$APK" 2>&1 || echo "APKSIGNER_VERIFY_FAILED"
+            else
+              echo "apksigner not found"
+            fi
+          } | tee build-info.txt
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
@@ -91,6 +123,7 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
+            build-info.txt
             android/app/build/outputs/apk/**/*universal*.apk
             android/app/build/outputs/apk/**/*arm64-v8a*.apk
             android/app/build/outputs/apk/**/*armeabi-v7a*.apk

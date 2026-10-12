@@ -277,6 +277,11 @@ export interface ILanguageData {
     "backupAndResume.resumeMode.append": string; // 附加
     "backupAndResume.resumeMode.overwrite-default": string; // 覆盖（默认）
     "backupAndResume.resumeMode.overwrite": string; // 覆盖
+    "backupAndResume.resumeKumoneFromWebdav": string; // 从WebDAV恢复Kumone备份
+    "backupAndResume.resumeKumoneFromUrl": string; // 从网址恢复Kumone备份
+    "backupAndResume.resumeKumoneFromUrlDialogTitle": string; // Kumone备份网址对话框标题
+    "backupAndResume.resumeKumoneFromUrlDialogPlaceHolder": string; // Kumone备份网址对话框占位符
+    "backupAndResume.kumoneBackupNotFound": string; // 未找到Kumone备份文件
 
     // 基本设置相关
     "basicSettings.common": string; // 通用

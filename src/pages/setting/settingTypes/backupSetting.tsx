@@ -131,6 +131,103 @@ export default function BackupSetting() {
         });
     }
 
+    async function onResumeKumoneFromWebdav() {
+        const url = Config.getConfig("webdav.url");
+        const username = Config.getConfig("webdav.username");
+        const password = Config.getConfig("webdav.password");
+
+        if (!(username && password && url)) {
+            Toast.warn(t("toast.resumePreCheckFailed"));
+            return;
+        }
+        const client = createClient(url, {
+            authType: AuthType.Password,
+            username: username,
+            password: password,
+        });
+
+        // Kumone 把备份写成 KumoneBackup.json，但放在哪个目录因人而异，
+        // 先把常见位置试一遍，再扫一层目录找同名文件。
+        const candidates = [
+            "/KumoneBackup.json",
+            "/MusicFree/KumoneBackup.json",
+            "/musicfree/KumoneBackup.json",
+        ];
+        let found: string | null = null;
+        for (const candidate of candidates) {
+            if (await client.exists(candidate)) {
+                found = candidate;
+                break;
+            }
+        }
+        if (!found) {
+            for (const dir of ["/", "/MusicFree"]) {
+                try {
+                    const contents = await client.getDirectoryContents(dir);
+                    const hit = (contents ?? []).find(
+                        it =>
+                            it.type === "file" &&
+                            it.basename?.toLowerCase() ===
+                                "kumonebackup.json",
+                    );
+                    if (hit) {
+                        found = hit.filename;
+                        break;
+                    }
+                } catch {}
+            }
+        }
+        if (!found) {
+            Toast.warn(
+                t("backupAndResume.kumoneBackupNotFound", {
+                    paths: candidates.join(" / "),
+                }),
+            );
+            return;
+        }
+
+        try {
+            const resumeData = await client.getFileContents(found, {
+                format: "text",
+            });
+            await Backup.resume(
+                resumeData,
+                Config.getConfig("backup.resumeMode"),
+            );
+            Toast.success(t("toast.resumeSuccess"));
+        } catch (e: any) {
+            Toast.warn(t("toast.resumeFail", { reason: e?.message ?? e }));
+        }
+    }
+
+    async function onResumeKumoneFromUrl() {
+        showPanel("SimpleInput", {
+            title: t("backupAndResume.resumeKumoneFromUrlDialogTitle"),
+            placeholder: t(
+                "backupAndResume.resumeKumoneFromUrlDialogPlaceHolder",
+            ),
+            maxLength: 1024,
+            async onOk(text, closePanel) {
+                try {
+                    const target = text.trim();
+                    if (
+                        !(target.endsWith(".json") || target.endsWith(".txt"))
+                    ) {
+                        throw "无效的URL";
+                    }
+                    const raw = (await axios.get(target)).data;
+                    await Backup.resume(raw, resumeMode);
+                    Toast.success(t("toast.resumeSuccess"));
+                    closePanel();
+                } catch (e: any) {
+                    Toast.warn(
+                        t("toast.resumeFail", { reason: e?.message ?? e }),
+                    );
+                }
+            },
+        });
+    }
+
     async function onResumeFromWebdav() {
         const url = Config.getConfig("webdav.url");
         const username = Config.getConfig("webdav.username");
@@ -293,6 +390,13 @@ export default function BackupSetting() {
             </ListItem>
             <ListItem withHorizontalPadding onPress={onResumeFromWebdav}>
                 <ListItem.Content title={t("backupAndResume.resumeFromWebdav")} />
+            </ListItem>
+            <ListItemHeader>Kumone 备份</ListItemHeader>
+            <ListItem withHorizontalPadding onPress={onResumeKumoneFromWebdav}>
+                <ListItem.Content title={t("backupAndResume.resumeKumoneFromWebdav")} />
+            </ListItem>
+            <ListItem withHorizontalPadding onPress={onResumeKumoneFromUrl}>
+                <ListItem.Content title={t("backupAndResume.resumeKumoneFromUrl")} />
             </ListItem>
         </ScrollView>
     );

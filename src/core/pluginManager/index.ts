@@ -10,6 +10,7 @@ import {
     IPluginManager,
 } from "@/types/core/pluginManager";
 import { removeAllMediaExtra } from "@/utils/mediaExtra";
+import safeVersion from "@/utils/safeVersion";
 import axios from "axios";
 import { compare } from "compare-versions";
 import EventEmitter from "eventemitter3";
@@ -215,8 +216,8 @@ class PluginManager implements IPluginManager, IInjectable {
             if (oldVersionPlugin && !config?.notCheckVersion) {
                 if (
                     compare(
-                        oldVersionPlugin.instance.version ?? "",
-                        plugin.instance.version ?? "",
+                        safeVersion(oldVersionPlugin.instance.version),
+                        safeVersion(plugin.instance.version),
                         ">",
                     )
                 ) {
@@ -305,8 +306,8 @@ class PluginManager implements IPluginManager, IInjectable {
                 if (oldVersionPlugin && !config?.notCheckVersion) {
                     if (
                         compare(
-                            oldVersionPlugin.instance.version ?? "",
-                            plugin.instance.version ?? "",
+                            safeVersion(oldVersionPlugin.instance.version),
+                            safeVersion(plugin.instance.version),
                             ">",
                         )
                     ) {

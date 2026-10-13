@@ -4,6 +4,7 @@ import { compare } from "compare-versions";
 import PluginManager from "./pluginManager";
 import MusicSheet from "@/core/musicSheet";
 import { ResumeMode } from "@/constants/commonConst.ts";
+import safeVersion from "@/utils/safeVersion";
 
 /**
  * 结果：一份大的json文件
@@ -102,6 +103,38 @@ function detectNeteasePlatform(): string {
     return hits.includes("网易云") ? "网易云" : hits[0];
 }
 
+/**
+ * 把同名歌单并成一份。
+ *
+ * Kumone 的备份是「本地歌单 + 网易云歌单」直接拼的，两边重名就会出现两条同标题
+ * 条目。MusicFree 的 Overwrite 合并在开循环前一次性建 title→id 映射，循环里新建
+ * 的歌单不进映射，于是同标题的每条各建一份——恢复一次，同名歌单就翻一倍。
+ */
+function mergeSheetsByTitle(
+    sheets: IMusic.IMusicSheetItem[],
+): IMusic.IMusicSheetItem[] {
+    const order: IMusic.IMusicSheetItem[] = [];
+    const byTitle = new Map<string, IMusic.IMusicSheetItem>();
+    for (const sheet of sheets) {
+        const title = sheet?.title ?? "";
+        const existing = byTitle.get(title);
+        if (existing) {
+            existing.musicList = [
+                ...(existing.musicList ?? []),
+                ...(sheet?.musicList ?? []),
+            ];
+            continue;
+        }
+        const copy = {
+            ...sheet,
+            musicList: [...(sheet?.musicList ?? [])],
+        } as IMusic.IMusicSheetItem;
+        byTitle.set(title, copy);
+        order.push(copy);
+    }
+    return order;
+}
+
 function backup() {
     const musicSheets = MusicSheet.backupSheets();
     const plugins = PluginManager.getEnabledPlugins();
@@ -136,13 +169,15 @@ async function resume(
     const validPlugins = PluginManager.getEnabledPlugins();
     const resumePlugins = plugins?.map(_ => {
         // 校验是否安装过: 同源且本地版本更高就忽略掉
+        // 版本号两边都要过 safeVersion：compare-versions 只认 semver，空串、
+        // 日期串、undefined 都会让它 throw，把整份恢复带崩。
         if (
             validPlugins.find(
                 plugin =>
                     plugin.instance.srcUrl === _.srcUrl &&
                     compare(
-                        plugin.instance.version ?? "0.0.0",
-                        _.version ?? "0.0.1",
+                        safeVersion(plugin.instance.version),
+                        safeVersion(_.version),
                         ">=",
                     ),
             )
@@ -157,10 +192,11 @@ async function resume(
     });
 
     /** 恢复歌单（Kumone 备份的 mixedSheets 一视同仁） */
-    const allSheets: IMusic.IMusicSheetItem[] = [
+    const rawSheets: IMusic.IMusicSheetItem[] = [
         ...(Array.isArray(musicSheets) ? musicSheets : []),
         ...(Array.isArray(mixedSheets) ? mixedSheets : []),
     ];
+    const allSheets = mergeSheetsByTitle(rawSheets);
     if (!allSheets.length && !plugins?.length) {
         throw new Error("备份文件格式无效");
     }

@@ -40,6 +40,7 @@ interface IBackJson {
  */
 function normalizeKumoneMusicItem(
     raw: any,
+    neteasePlatform: string = "网易云",
 ): IMusic.IMusicItem | null {
     if (!raw || typeof raw !== "object") {
         return null;
@@ -50,7 +51,7 @@ function normalizeKumoneMusicItem(
         }
         return {
             id: String(raw.id),
-            platform: "网易云",
+            platform: neteasePlatform,
             title: raw.name ?? raw.title ?? "",
             artist: raw.artist ?? "",
             album: raw.album ?? "",
@@ -80,6 +81,25 @@ function normalizeKumoneMusicItem(
                   ? durationMS / 1000
                   : 0,
     };
+}
+
+/**
+ * 网易云在 MusicFree 里同样是插件，播放时靠 platform 名路由到插件
+ * （getByName(mediaItem.platform)），名字必须和插件声明的一字不差——
+ * 「网易云」≠「网易云音乐」。社区里主流的那份叫「网易云」，但也有分支叫
+ * 「网易云音乐」；装完插件后按实际装上的那个取名，取不到再退回默认值。
+ */
+function detectNeteasePlatform(): string {
+    const installed = PluginManager.getEnabledPlugins() ?? [];
+    const hits = installed
+        .map(_ => _?.instance?.platform)
+        .filter((p): p is string => typeof p === "string" && p.length > 0)
+        .filter(p => /网易云|netease/i.test(p));
+    if (!hits.length) {
+        return "网易云";
+    }
+    // 同时装着多个网易云系插件时优先用标准名，免得同一首歌被拆成两份
+    return hits.includes("网易云") ? "网易云" : hits[0];
 }
 
 function backup() {
@@ -129,7 +149,11 @@ async function resume(
         ) {
             return;
         }
-        return PluginManager.installPluginFromUrl(_.srcUrl);
+        // 单个插件地址失效不该拖垮整份恢复：歌单里大部分是别的音源，
+        // 为了一个 404 把全部歌单都回滚不划算。失败只记日志。
+        return PluginManager.installPluginFromUrl(_.srcUrl).catch(e => {
+            console.warn(`[resume] 插件安装失败：${_.srcUrl}`, e);
+        });
     });
 
     /** 恢复歌单（Kumone 备份的 mixedSheets 一视同仁） */
@@ -140,18 +164,20 @@ async function resume(
     if (!allSheets.length && !plugins?.length) {
         throw new Error("备份文件格式无效");
     }
+    // 先等插件装完：网易云曲的 platform 要按实际装上的那个插件取名，
+    // 装完再归一化才拿得到名字。
+    await Promise.all(resumePlugins ?? []);
+    const neteasePlatform = detectNeteasePlatform();
     const normalizedSheets = allSheets.map(sheet => ({
         ...sheet,
         musicList: (sheet?.musicList ?? [])
-            .map(normalizeKumoneMusicItem)
+            .map(item => normalizeKumoneMusicItem(item, neteasePlatform))
             .filter(Boolean),
     }));
-    const resumeMusicSheets = MusicSheet.resumeSheets(
+    return MusicSheet.resumeSheets(
         normalizedSheets as IMusic.IMusicSheetItem[],
         resumeMode,
     );
-
-    return Promise.all([...(resumePlugins ?? []), resumeMusicSheets]);
 }
 
 const Backup = {

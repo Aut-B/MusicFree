@@ -221,6 +221,24 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
         if (musicItem.platform === localPluginPlatform) {
             throw new Error("本地音乐不存在");
         }
+        // 1.5 补详情
+        // 有些插件（典型如一部分网易云插件）要求 musicItem.qualities[quality]
+        // 有值才肯返回播放地址，而 Kumone 备份里的曲目只有引用字段——id、标题、
+        // 封面、时长——偏偏没有 qualities。这时先用插件自己的 getMusicInfo 按 id
+        // 补一次详情再要地址。从插件搜索或导入得到的曲目都带 qualities，走不到
+        // 这里，正常播放不受影响。
+        if (
+            !musicItem?.qualities?.[quality] &&
+            this.plugin.instance.getMusicInfo
+        ) {
+            const hydrated = await this.getMusicInfo(musicItem);
+            if (hydrated) {
+                musicItem = {
+                    ...musicItem,
+                    ...hydrated,
+                } as IMusic.IMusicItemBase;
+            }
+        }
         // 2. 缓存播放
         const mediaCache = MediaCache.getMediaCache(
             musicItem,

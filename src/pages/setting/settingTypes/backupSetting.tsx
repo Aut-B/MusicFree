@@ -190,10 +190,10 @@ export default function BackupSetting() {
             const resumeData = await client.getFileContents(found, {
                 format: "text",
             });
-            await Backup.resume(
-                resumeData,
-                Config.getConfig("backup.resumeMode"),
-            );
+            // Kumone 备份是「反复恢复」的场景：每次在 iOS 端重新导出都会再来一次。
+            // 所以固定走按歌单名合并的模式，不沿用 MusicFree 备份的 resumeMode
+            // （append 会每次都新建一份歌单）；曲目按 id+平台去重，重复恢复无害。
+            await Backup.resume(resumeData, ResumeMode.Overwrite);
             Toast.success(t("toast.resumeSuccess"));
         } catch (e: any) {
             Toast.warn(t("toast.resumeFail", { reason: e?.message ?? e }));
@@ -216,7 +216,8 @@ export default function BackupSetting() {
                         throw "无效的URL";
                     }
                     const raw = (await axios.get(target)).data;
-                    await Backup.resume(raw, resumeMode);
+                    // 同上：按歌单名合并，方便反复恢复同一份 Kumone 备份。
+                    await Backup.resume(raw, ResumeMode.Overwrite);
                     Toast.success(t("toast.resumeSuccess"));
                     closePanel();
                 } catch (e: any) {

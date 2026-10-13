@@ -43,14 +43,23 @@ jobs:
       - name: Install Dependencies
         run: npm ci --prefer-offline --no-audit
 
-      # 自用构建：没有正式签名证书，现场生成一个。装过一次之后，
-      # 后续更新必须用同一把密钥，所以后续版本请在本工作流里换成固定证书。
-      - name: Generate signing key
+      # 固定签名证书：keystore 以 base64 存在 secret MUSICFREE_KEYSTORE_BASE64 里，
+      # 这样每次构建都是同一把钥匙，更新才能覆盖安装（现场生成的话装过一次就换不动）。
+      # secret 缺失时退回现场生成，保证工作流不会直接失败。
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MUSICFREE_KEYSTORE_BASE64 }}
         run: |
-          keytool -genkeypair -v -keystore android/app/release.keystore \
-            -alias musicfree -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=MusicFree, OU=Dev, O=Dev, L=, S=, C=CN"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+            echo "using keystore from secret"
+          else
+            echo "MUSICFREE_KEYSTORE_BASE64 missing, generating an ephemeral one"
+            keytool -genkeypair -v -keystore android/app/release.keystore \
+              -alias musicfree -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=MusicFree, OU=Dev, O=Dev, L=, C=CN"
+          fi
           printf 'RELEASE_STORE_FILE=release.keystore\nRELEASE_STORE_PASSWORD=android\nRELEASE_KEY_ALIAS=musicfree\nRELEASE_KEY_PASSWORD=android\n' > android/keystore.properties
           echo "--- keystore.properties ---"
           cat android/keystore.properties

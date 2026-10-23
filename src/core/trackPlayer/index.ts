@@ -63,6 +63,8 @@ class TrackPlayer extends EventEmitter<{
 
     // 当前播放的音乐下标
     private currentIndex = -1;
+    // 最近一次自动推进（播完一首 → 下一首）的时间戳，用于抑制重复触发
+    private lastAutoAdvanceAt = 0;
     // 音乐播放器服务是否启动
     private serviceInited = false;
     // 播放队列索引map
@@ -188,11 +190,24 @@ class TrackPlayer extends EventEmitter<{
             ReactNativeTrackPlayer.addEventListener(
                 Event.PlaybackActiveTrackChanged,
                 async evt => {
-                    if (
-                        evt.index === 1 &&
-                        evt.lastIndex === 0 &&
-                        evt.track?.url === TrackPlayer.fakeAudioUrl
-                    ) {
+                    // 队列恒为 [当前歌曲, 哨兵轨]，因此 index 0 → 1 且
+                    // lastIndex 为 0，只可能是"当前曲播完、自动前进到哨兵"。
+                    //
+                    // 原先还额外要求 evt.track?.url === fakeAudioUrl，这是错的：
+                    // 哨兵轨的 url 是无法解析的 musicfree://fake-audio，ExoPlayer
+                    // 加载失败后播放器进入 error 态、不再有 active track，此时
+                    // RNTP 4.x 返回的 evt.track 为 undefined（官方文档：track 为
+                    // "undefined if there is no longer an active track"），
+                    // 条件永不成立，表现为"播完一首就卡住、点播放也没反应"。
+                    // 对应上游 issue #158 / #155 / #657。
+                    if (evt.index === 1 && evt.lastIndex === 0) {
+                        // PlaybackActiveTrackChanged 与哨兵轨的 PlaybackError 可能
+                        // 先后到达，两条路都会尝试推进，这里做 800ms 去重。
+                        if (Date.now() - this.lastAutoAdvanceAt < 800) {
+                            return;
+                        }
+                        this.lastAutoAdvanceAt = Date.now();
+
                         trace("队列末尾，播放下一首");
                         this.emit(TrackPlayerEvents.PlayEnd);
                         if (
@@ -225,9 +240,29 @@ class TrackPlayer extends EventEmitter<{
                         return;
                     }
 
-                    if (
+                    const activeIndex =
+                        await ReactNativeTrackPlayer.getActiveTrackIndex();
+
+                    // 哨兵轨（index 1）加载失败是设计使然——它的 url 本就不是
+                    // 真音频。正常情况下紧接着的 PlaybackActiveTrackChanged 会
+                    // 接管推进，但在该判据失效的设备上两条路都断了，播放就停在
+                    // 这里。所以这里补一次推进，并靠时间戳避免和上面重复。
+                    if (activeIndex === 1) {
+                        if (Date.now() - this.lastAutoAdvanceAt < 800) {
+                            return;
+                        }
+                        this.lastAutoAdvanceAt = Date.now();
+
+                        trace("哨兵轨加载失败，推进下一首");
+                        this.emit(TrackPlayerEvents.PlayEnd);
+                        if (this.repeatMode === MusicRepeatMode.SINGLE) {
+                            await this.play(null, true);
+                        } else {
+                            await this.skipToNext();
+                        }
+                    } else if (
                         currentTrack?.url !== TrackPlayer.fakeAudioUrl && currentTrack?.url !== TrackPlayer.proposedAudioUrl &&
-                        (await ReactNativeTrackPlayer.getActiveTrackIndex()) === 0 &&
+                        activeIndex === 0 &&
                         e.message &&
                         e.message !== "android-io-file-not-found"
                     ) {
